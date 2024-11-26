@@ -48,3 +48,7 @@ APRS-IS Protocol Data
         Message: @212552h3647.31N/08808.65W>360/000/A=000385(GotFix 9/13)
 
 ----
+
+== Todo
+
+There is still much to do. The APRS protocol is quite complex, and this parser is very limited to basic fields.
