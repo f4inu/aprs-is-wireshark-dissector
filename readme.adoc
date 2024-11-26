@@ -1,0 +1,50 @@
+= Wireshark APRS-IS lua dissector
+
+This is a basic lua APRS-IS parser for Wireshark. It currently decodes the Source, Destination callsign ('tocalls' - originally at http://www.aprs.org/aprs11/tocalls.txt, now https://github.com/aprsorg/aprs-deviceid), path and Destination.
+
+Destination is possibly empty, but should be filled if the aprs packet is a message.
+
+== Installation
+
+Copy `wireshark_aprsis.lua` to the personal lua plugin folder. To find where it is, select "Help/About Wireshark" in Wireshark, and then in the 'Folders' tab the 'Personal Lua Plugins' folder is listed.
+
+On Linux and some unices, this should do the trick:
+[,console]
+----
+$ cp wireshark_aprsis.lua ~/.local/lib/wireshark/plugins/
+----
+
+== Usage
+
+If you are using port 10152 to establish an APRS-IS connection to a tier2 server, decoding should be automatic. If you are using port 14580, you can either edit the lua source, or right-click on the tcp payload in Wireshark, select "Decode as" and add a rule to parse the payloads as APRSIS.
+
+You can now use display filters as usual with any of the packet fields as explained on https://www.wireshark.org/docs/wsug_html_chunked/ChWorkBuildDisplayFilterSection.html[the documentation].
+
+* `aprsis.source == "F4INU"` : filter on source callsign
+* `aprsis.destination ~ "."` : will display packets with non-empty destination field
+* `aprsis.path ~ "WIDE.-` : will display packets that were received by a radio path
+
+== Display
+The packets will be displayed as such:
+
+[source,console]
+----
+Frame 82: 228 bytes on wire (1824 bits), 228 bytes captured (1824 bits) on interface enx9cebe8f2b38a, id 0
+Ethernet II, Src: 62:94:ED:1B:69:1A (62:94:ED:1B:69:1A), Dst: EE:9B:AF:E1:52:DB (EE:9B:AF:E1:52:DB)
+Internet Protocol Version 4, Src: 91.210.59.134, Dst: 192.168.151.3
+Transmission Control Protocol, Src Port: 10152, Dst Port: 33298, Seq: 17437, Ack: 46, Len: 162
+APRS-IS Protocol Data
+    HS6BUE-3>AESPG4,TCPIP*,qAC,T2OSAKA::HS6BUE-3 :PARM.PM1.0,PM2.5,PM10,RSSI,SUN
+        Source: HS6BUE-3
+        Destination Callsign: AESPG4
+        Path: TCPIP*,qAC,T2OSAKA
+        Destination: HS6BUE-3 
+        Message: PARM.PM1.0,PM2.5,PM10,RSSI,SUN
+    KD9MSN-9>APWW11,K4MSU-5*,WIDE1,WIDE2-1,qAR,KJ4W:@212552h3647.31N/08808.65W>360/000/A=000385(GotFix 9/13)
+        Source: KD9MSN-9
+        Destination Callsign: APWW11
+        Path: K4MSU-5*,WIDE1,WIDE2-1,qAR,KJ4W
+        Destination: 
+        Message: @212552h3647.31N/08808.65W>360/000/A=000385(GotFix 9/13)
+
+----

@@ -69,7 +69,7 @@ function aprsis_proto.dissector(buffer, pinfo, tree)
     end
 end
 
--- Enregistrement du dissector sur le port APRS-IS (14580)
+-- Enregistrement du dissector sur le port APRS-IS (10152)
 local aprsis_port = DissectorTable.get("tcp.port")
 aprsis_port:add(10152, aprsis_proto)
 
