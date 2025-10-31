@@ -24,6 +24,20 @@ You can now use display filters as usual with any of the packet fields as explai
 * `aprsis.destination ~ "."` : will display packets with non-empty destination field
 * `aprsis.path ~ "WIDE.-` : will display packets that were received by a radio path
 
+== Test
+
+If you want to receive an APRS-IS unfiltered full feed for testing purposes, the following wil do: 
+
+[source,console]
+----
+$ echo "user foo pass -1 vers telnet" | nc euro.aprs2.net 10152
+# aprsc 2.1.19-g730c5c0
+# logresp foo unverified, server T2LAUSITZ
+KN6ABC-R>APDG03,TCPIP*,qAC,KN6WPU-RS:!3819.45ND12241.91W&/A=00000070cm MMDVM Voice (C4FM) 439.55000MHz -6.0000MHz, Pi-Star_RPT
+HB4A-5>APDR16,TCPIP*,qAC,T2CZECH:=RASTR RAdioSonde TRacker powered by dxlAPRS.
+...
+----
+
 == Display
 The packets will be displayed as such:
 
