@@ -1,8 +1,31 @@
 = Wireshark APRS-IS lua dissector
 
-This is a basic lua APRS-IS parser for Wireshark. It currently decodes the Source, Destination callsign ('tocalls' - originally at http://www.aprs.org/aprs11/tocalls.txt, now https://github.com/aprsorg/aprs-deviceid), path and Destination.
+This is a lua APRS-IS parser for Wireshark. It decodes the APRS-IS TCP
+framing (one APRS frame per `\r\n`-terminated line, lines reassembled
+across TCP segments) and, within each frame:
 
-Destination is possibly empty, but should be filled if the aprs packet is a message.
+* source / destination (with SSID split), digipeater path (per element,
+  with the "heard directly" `*` flag), q-construct with meaning
+* login lines (`user … pass … vers …`), server chatter (`# aprsc …`,
+  `# logresp …`) and blank-line heartbeats
+* information-field types: position (plain, compressed, timestamped),
+  status, messages (multi-addressee, ack/rej/multi-ack, BLN/NWS
+  bulletins), objects (base-91 timestamps, live/killed), items and DF
+  items with overlays, Mic-E (destination-call message bits and
+  latitude digits, manufacturer type/version, NNNN} altitude), weather
+  reports (and the post-position `_` extension), telemetry (T#, T=,
+  T!, T^, PARM/UNIT/EQNS labels, `|…|` comment extension), third-party
+  traffic (decoded recursively), station capabilities (XML), raw
+  NMEA/GPS, positionless course/speed, query, user-defined data,
+  Maidenhead beacons
+* comment extras: `/A=` altitude, `FFF.FFFMHz` frequency, PHG, DFS,
+  `!DAO!`, symbol table/code resolved to symbol names, decimal
+  latitude/longitude fields
+
+Destination callsigns such as `TCPIP*` are identified from
+http://www.aprs.org/aprs11/tocalls.txt, now
+https://github.com/aprsorg/aprs-deviceid[aprs-deviceid] (not yet
+annotated in the tree -- see todo).
 
 == Installation
 
@@ -14,19 +37,29 @@ On Linux and some unices, this should do the trick:
 $ cp wireshark_aprsis.lua ~/.local/lib/wireshark/plugins/
 ----
 
+Note: Debian/Ubuntu ship an AppArmor profile for tshark that may refuse
+to read lua plugins from your home directory; the Wireshark GUI is not
+affected.
+
 == Usage
 
-If you are using port 10152 to establish an APRS-IS connection to a tier2 server, decoding should be automatic. If you are using port 14580, you can either edit the lua source, or right-click on the tcp payload in Wireshark, select "Decode as" and add a rule to parse the payloads as APRSIS.
+Both the client port (10152) and the standard APRS-IS port (14580) are
+registered, so decoding is automatic in both directions. For payloads
+on any other port, right-click the tcp payload in Wireshark, select
+"Decode As" and map it to APRS-IS.
 
 You can now use display filters as usual with any of the packet fields as explained on https://www.wireshark.org/docs/wsug_html_chunked/ChWorkBuildDisplayFilterSection.html[the documentation].
 
 * `aprsis.source == "F4INU"` : filter on source callsign
-* `aprsis.destination ~ "."` : will display packets with non-empty destination field
-* `aprsis.path ~ "WIDE.-` : will display packets that were received by a radio path
+* `aprsis.destination_callsign contains "IGATE"` : destination callsign
+* `aprsis.digipeater.callsign == "WIDE1-1"` : seen through a radio path element
+* `aprsis.info_field.type_decoded contains "Weather"` : weather reports
+* `aprsis.q_construct.code == "qAR"` : igated from RF
+* `aprsis.lat_deg > 45 && aprsis.freq exists` : northern stations naming a frequency
 
 == Test
 
-If you want to receive an APRS-IS unfiltered full feed for testing purposes, the following wil do: 
+If you want to receive an APRS-IS unfiltered full feed for testing purposes, the following wil do:
 
 [source,console]
 ----
@@ -38,31 +71,79 @@ HB4A-5>APDR16,TCPIP*,qAC,T2CZECH:=RASTR RAdioSonde TRacker powered by dxlAPRS.
 ...
 ----
 
-== Display
-The packets will be displayed as such:
+A full tier-2 feed carries roughly 100 frames/s (10 kB/s): capture a
+minute or two, not hours. To check the dissector headlessly:
 
 [source,console]
 ----
-Frame 82: 228 bytes on wire (1824 bits), 228 bytes captured (1824 bits) on interface enx9cebe8f2b38a, id 0
-Ethernet II, Src: 62:94:ED:1B:69:1A (62:94:ED:1B:69:1A), Dst: EE:9B:AF:E1:52:DB (EE:9B:AF:E1:52:DB)
-Internet Protocol Version 4, Src: 91.210.59.134, Dst: 192.168.151.3
-Transmission Control Protocol, Src Port: 10152, Dst Port: 33298, Seq: 17437, Ack: 46, Len: 162
-APRS-IS Protocol Data
-    HS6BUE-3>AESPG4,TCPIP*,qAC,T2OSAKA::HS6BUE-3 :PARM.PM1.0,PM2.5,PM10,RSSI,SUN
-        Source: HS6BUE-3
-        Destination Callsign: AESPG4
-        Path: TCPIP*,qAC,T2OSAKA
-        Destination: HS6BUE-3 
-        Message: PARM.PM1.0,PM2.5,PM10,RSSI,SUN
-    KD9MSN-9>APWW11,K4MSU-5*,WIDE1,WIDE2-1,qAR,KJ4W:@212552h3647.31N/08808.65W>360/000/A=000385(GotFix 9/13)
-        Source: KD9MSN-9
-        Destination Callsign: APWW11
-        Path: K4MSU-5*,WIDE1,WIDE2-1,qAR,KJ4W
-        Destination: 
-        Message: @212552h3647.31N/08808.65W>360/000/A=000385(GotFix 9/13)
-
+$ tshark -X lua_script:wireshark_aprsis.lua -r feed.pcap -V | grep -c "Lua Error"
+0
 ----
 
-== Todo
+== Display
 
-There is still much to do. The APRS protocol is quite complex, and this parser is very limited to basic fields.
+A packet line now decodes as such (excerpt):
+
+[source,console]
+----
+APRS Packet: DA6WR>APOSB4,TCPIP*,qAC,T2CAEAST:@072219z4818.54N/01140.18E-/A=001515SharkRF openSPOT4
+    Line Length (bytes): 86
+    Source Callsign: DA6WR
+    Destination Callsign: APOSB4
+    Digipeater Path (Raw): TCPIP*
+    Digipeaters
+        Digipeater Callsign: TCPIP*
+            Heard Directly (path used): True
+    Q-Construct Information
+        Q-Construct Code: qAC
+        Q-Construct Description: Server: Verified login via bidirectional port.
+        Q-Construct Callsign/Server: T2CAEAST
+    Information Field Type: Position (with timestamp) + messaging extension
+    Timestamp: 072219z
+    Latitude: 4818.54N
+    Longitude: 01140.18E
+    Symbol Code: -
+    Symbol Name: Mobile
+    Altitude /A= (meters): 1515
+    Comment: /A=001515SharkRF openSPOT4
+----
+
+== Known limitations and todo
+
+The APRS protocol is quite complex; what is left, in rough order of
+usefulness:
+
+* Mic-E: decoded with the original APRS 1.01 destination-call table.
+  The 2016 "Mic-E TOCALL" variant (explicit hemispheres, different
+  message bits, aprs.org/aprs12) is not detected, so latitude
+  hemisphere and message text may be wrong for modern trackers.
+* Telemetry values are shown as raw numbers; the per-station PARM/
+  UNIT/EQNS calibration or CCK formulas are parsed as labels but not
+  applied, so there are no engineering units.
+* Timestamps (DDHHMMz/h, base-91) are shown as raw strings, not
+  resolved to wall-clock `FT_ABSOLUTE_TIME` fields (the year and the
+  month of a base-91 stamp are genuinely ambiguous -- heuristic
+  against capture time would be needed).
+* Winlink/NetROM traffic sometimes embeds literal newlines in status
+  text; those continuation lines appear as separate "Unknown/Other"
+  APRS packets instead of being appended to the previous packet.
+* Login/filter options (`filter …`, `port …`) are shown as raw text,
+  not semantically parsed (APRS-IS filter language,
+  https://wiki.aprs2.net/index.php?title=APRS_IS_filter_options).
+* Callsigns such as `TCPIP*` or device ids like `APWW11` are not
+  annotated with their meaning (see aprs-deviceid above).
+* Most fields are FT_STRING for readability; only position/course/
+  speed/altitude/weather numbers are typed. This keeps display simple
+  but prevents range-arithmetic filters on e.g. temperatures.
+* Third-party recursion has no depth limit (harmless in practice --
+  servers drop loops).
+* Speed: the whole TCP PDU is hex-decoded once per dissection for
+  byte-accurate ranges; multi-megabyte full-feed captures dissect
+  noticeably slower than a C dissector would.
+* No automated regression test; validation so far is by running
+  tshark -V over captures (repo `aprs-is.pcapng` and 45s full-feed
+  captures from euro.aprs2.net) and asserting zero dissector errors.
+  A test script over a feed corpus would be easy to add.
+* Consider upstreaming as a C dissector for Wireshark (there is an
+  AX.25-only `packet-aprs.c` in the C tree but no APRS-IS-over-TCP
+  dissector upstream); the lua plugin remains fine for personal use.
