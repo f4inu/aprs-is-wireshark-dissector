@@ -214,7 +214,15 @@ function aprsis_proto.dissector(buffer, pinfo, tree)
     local subtree = tree:add(aprsis_proto, buffer(), "APRS-IS Protocol Data")
 
     -- Extraire les données sous forme de chaîne
-    local data = buffer():string()
+    -- Attention : buffer():string() (et buffer:string()) « sanitise » l'UTF-8 :
+    -- chaque octet invalide est remplacé par U+FFFD (3 octets), ce qui
+    -- décale tous les offsets au-delà du premier octet non-UTF-8 (fréquent
+    -- dans les commentaires APRS : degré, flèches, accents en Latin-1).
+    -- Les buffer:range(current_offset, ...) héritent alors de lengths fausses
+    -- et Wireshark lève « Range is out of bounds »
+    -- Le décodage hexadécimal ci-dessous rend les octets exacts.
+    local hex = buffer:range(0, length):bytes():tohex()
+    local data = (hex:gsub("%x%x", function(cc) return string.char(tonumber(cc, 16)) end))
 
     -- Les flux APRS-IS peuvent contenir plusieurs paquets par segment TCP, séparés par '\r\n'.
     -- Les lignes de commentaire APRS-IS commencent par '#'.
